@@ -1,0 +1,46 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.16'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.springframework.boot.aot' version '3.5.16'
+}
+
+group = 'com.example'
+version = '0.0.1'
+
+java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
+
+repositories { mavenCentral() }
+
+dependencyManagement {
+    imports { mavenBom 'org.springframework.cloud:spring-cloud-dependencies:2025.0.3' }
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.cloud:spring-cloud-starter-vault-config'
+}
+
+// PoC scenario switch: ./gradlew bootJar -Paot=<scenario>
+// Each scenario adds src/scenarios/<scenario> to the classpath and may pass args to processAot.
+def scenario = findProperty('aot') ?: 'runtime-import'
+def aotArgs = [
+    'naive'            : [],
+    'blank-import'     : ['--spring.config.import='],              // the commonly suggested fix
+    'optional-disabled': ['--spring.cloud.vault.enabled=false'],
+    'runtime-import'   : [],
+    // Bean-shaping flags must be decided at build time; set them explicitly, don't fetch them from Vault.
+    'runtime-import-flags': ['--feature.audit.enabled=true'],
+]
+if (!aotArgs.containsKey(scenario)) {
+    throw new GradleException("Unknown -Paot scenario '${scenario}'. Choose one of ${aotArgs.keySet()}")
+}
+
+sourceSets.main.resources.srcDir("src/scenarios/${scenario.replace('-flags', '')}")
+processResources { exclude 'README.md' }
+
+tasks.named('processAot') {
+    args(aotArgs[scenario] as String[])
+}
+
+bootJar { archiveClassifier = scenario }

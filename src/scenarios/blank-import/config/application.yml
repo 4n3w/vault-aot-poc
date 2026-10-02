@@ -1,0 +1,4 @@
+# The usual setup: Vault imported unconditionally from the packaged config.
+spring:
+  config:
+    import: vault://

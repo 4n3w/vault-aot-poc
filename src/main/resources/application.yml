@@ -1,0 +1,15 @@
+# Shared, non-secret Vault client settings. Safe to bake in at build time.
+# The *import* of Vault config data is deliberately NOT here - see src/scenarios/.
+spring:
+  application:
+    name: vault-aot-poc
+  cloud:
+    vault:
+      uri: ${VAULT_ADDR:http://127.0.0.1:8200}
+      fail-fast: true
+      authentication: TOKEN
+      token: ${VAULT_TOKEN:}
+      kv:
+        enabled: true
+        backend: secret
+        default-context: vault-aot-poc

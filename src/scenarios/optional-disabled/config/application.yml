@@ -1,0 +1,5 @@
+# Vault import is optional, so it can be switched off for processAot
+# with --spring.cloud.vault.enabled=false without the import failing.
+spring:
+  config:
+    import: optional:vault://
