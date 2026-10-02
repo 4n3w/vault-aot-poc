@@ -27,8 +27,8 @@ holds the tooling that runs the three apps side by side, and the results.
 run.sh                 local comparison: Vault dev server + toxiproxy + processes
 k3d.sh                 cluster comparison: up | run | down on a local k3d cluster
 Dockerfile             one image per app (+ Dockerfile.dockerignore: only the jar is sent)
-k8s/apps/              kustomization that deploys the apps' own manifests (02, 03 x2, 04) together
-k8s/infra/             k3d only: Vault + VSO Helm values, toxiproxy, vault-setup.sh
+k8s/apps/              kustomization that deploys the apps' own manifests (02, 03 x2, 04, 05 x6, 06 x6) together
+k8s/infra/             k3d only: Vault + VSO Helm values, toxiproxy, vault-setup.sh, mongo.yaml + mongo-seed.js
 local/policy.hcl       Vault policy for the local run
 ```
 
@@ -134,10 +134,137 @@ Times are medians of 5 starts, in ms.
   - It's worth it when the app needs Spring Cloud Vault at runtime, not for startup alone.
 - **None of this explains an 8–9 s startup.** That points to a network stall (see below).
 
+## 05-06 MongoDB
+
+05 and 06 add MongoDB, with its credentials from Vault (static KV, or the database engine), and the
+startup work Mongo apps usually do (index check plus loading 5,000 reference documents).
+- **05** keeps 02's Vault setup and compares doing that work **blocking**, **deferred** or
+  **reactive**.
+- **06** is the optimized version: AOT plus deferred init, through each of 03's and 04's delivery
+  options.
+
+The design is in the [05](../05-mongo-baseline/README.md) and [06](../06-mongo-optimized/README.md)
+READMEs. They run on k3d only (`make 05`, `make 06`, `make compare-mongo`).
+
+| Folder | Deployments | Secrets via | Mongo init | AOT by default |
+|---|---|---|---|---|
+| [`05-mongo-baseline`](../05-mongo-baseline/README.md) | `mongo-{kv,dyn}-{blocking,deferred,reactive}` | Spring Cloud Vault → Vault (as 02) | blocking / deferred / reactive | off |
+| [`06-mongo-optimized`](../06-mongo-optimized/README.md) | `opt-{vso,agentinit,agent}-{kv,dyn}` | VSO files / agent init files (as 03) / agent sidecar (as 04) | deferred | on |
+
+### k3d pods (`k3d.sh`; 1 CPU / 768Mi per app container, 25 ms to Vault and to MongoDB)
+
+`make compare-mongo`, median of 5 pod starts:
+
+```
+JVM (ms): env_prep = config loading; vault = the part of it spent on the vault:// import (client setup,
+login, reads). spring_init = Spring initialization:
+ctx_prep (create context, register sources) + bean_defs (config parsing, scanning, conditions - what AOT
+replaces) + web_srv (create Tomcat) + beans (instantiate singletons, start lifecycle).
+deployment                     aot    env_prep   vault  spring_init  ctx_prep  bean_defs  web_srv    beans  jvm_total
+05-mongo-kv-blocking           false      1698    1207         4206       134       1396      586     1937       6636
+05-mongo-kv-blocking           true       1791    1234         3212       392        124      709     1892       5752
+05-mongo-kv-deferred           false      1732    1238         3505       167       1389      568     1278       6035
+05-mongo-kv-deferred           true       1797    1259         2504       336        141      642     1270       5063
+05-mongo-kv-reactive           false      1736    1212         3533       137       1371      587     1358       6316
+05-mongo-kv-reactive           true       1700    1214         2515       402        138      659     1156       5121
+05-mongo-dyn-blocking          false      1701    1223         4101       151       1318      565     1960       6555
+05-mongo-dyn-blocking          true       1692    1213         3095       327        169      683     1811       5582
+05-mongo-dyn-deferred          false      1711    1257         3394       116       1362      568     1230       5882
+05-mongo-dyn-deferred          true       1770    1214         2443       340        174      672     1154       5017
+05-mongo-dyn-reactive          false      1861    1357         3420       124       1316      571     1295       6249
+05-mongo-dyn-reactive          true       1796    1338         2424       384        124      703     1165       5123
+06-opt-vso-kv                  false       499       0         3725       190       1323      710     1344       4902
+06-opt-vso-kv                  true        507       0         2914       406        181      899     1287       4136
+06-opt-vso-dyn                 false       500       0         3683       187       1374      770     1310       4819
+06-opt-vso-dyn                 true        503       0         2893       401        168      919     1282       4121
+06-opt-agentinit-kv            false       499       0         3777       191       1382      763     1316       4923
+06-opt-agentinit-kv            true        522       0         2928       402        135      968     1296       4119
+06-opt-agentinit-dyn           false       543       0         3730       188       1364      716     1368       4906
+06-opt-agentinit-dyn           true        590       0         2850       396        155      951     1257       4081
+06-opt-agent-kv                false      1578    1070         3466       127       1369      577     1287       5741
+06-opt-agent-kv                true       1575    1063         2497       333        176      701     1184       4808
+06-opt-agent-dyn               false      1528    1083         3333       123       1299      514     1274       5639
+06-opt-agent-dyn               true       1594    1101         2422       332        171      705     1119       4779
+
+Pod (ms): vault_total = all Vault time on the pod's startup path = vault (in the JVM) + agent_init (Vault
+Agent init container, first to last log line) + agent_wait (app waiting for the agent sidecar).
+pod_ready = scale-up -> Ready (incl. 1 s probe period). vault_req = Vault requests per pod start.
+deployment                     aot    jvm_total   vault  agent_init  agent_wait  vault_total  pod_ready  vault_req
+05-mongo-kv-blocking           false       6636    1207           0           0         1207       8095          7
+05-mongo-kv-blocking           true        5752    1234           0           0         1234       7091          7
+05-mongo-kv-deferred           false       6035    1238           0           0         1238       7176          7
+05-mongo-kv-deferred           true        5063    1259           0           0         1259       7012          7
+05-mongo-kv-reactive           false       6316    1212           0           0         1212       7950          7
+05-mongo-kv-reactive           true        5121    1214           0           0         1214       7015          7
+05-mongo-dyn-blocking          false       6555    1223           0           0         1223       8051          7
+05-mongo-dyn-blocking          true        5582    1213           0           0         1213       7059          7
+05-mongo-dyn-deferred          false       5882    1257           0           0         1257       7139          7
+05-mongo-dyn-deferred          true        5017    1214           0           0         1214       6145          7
+05-mongo-dyn-reactive          false       6249    1357           0           0         1357       7552          7
+05-mongo-dyn-reactive          true        5123    1338           0           0         1338       6109          7
+06-opt-vso-kv                  false       4902       0           0           0            0       6187          0
+06-opt-vso-kv                  true        4136       0           0           0            0       5277          0
+06-opt-vso-dyn                 false       4819       0           0           0            0       6175          0
+06-opt-vso-dyn                 true        4121       0           0           0            0       5292          0
+06-opt-agentinit-kv            false       4923       0          89           0           89       6304          6
+06-opt-agentinit-kv            true        4119       0          88           0           88       5842          6
+06-opt-agentinit-dyn           false       4906       0         104           0          104       7206          7
+06-opt-agentinit-dyn           true        4081       0         109           0          109       6266          7
+06-opt-agent-kv                false       5741    1070          31         161         1268       8178          8
+06-opt-agent-kv                true        4808    1063          31         109         1223       7140          8
+06-opt-agent-dyn               false       5639    1083          31         160         1274       8139          9
+06-opt-agent-dyn               true        4779    1101          30         109         1241       6661          9
+
+MongoDB (ms): mongo_block = index check + cache load on the startup path (blocking mode; part of beans).
+mongo_bg = the same work after Ready (deferred/reactive). first_req = GET /items right after Ready
+(always queries Mongo; pays any connection/auth setup the warm-up hasn't done yet).
+deployment                     aot          beans mongo_block   mongo_bg  first_req
+05-mongo-kv-blocking           false         1937        613          0         50
+05-mongo-kv-blocking           true          1892        604          0         50
+05-mongo-kv-deferred           false         1278          0        834        100
+05-mongo-kv-deferred           true          1270          0        782        130
+05-mongo-kv-reactive           false         1358          0       1362        160
+05-mongo-kv-reactive           true          1156          0       1336        180
+05-mongo-dyn-blocking          false         1960        683          0         50
+05-mongo-dyn-blocking          true          1811        611          0         50
+05-mongo-dyn-deferred          false         1230          0        731         60
+05-mongo-dyn-deferred          true          1154          0        696         70
+05-mongo-dyn-reactive          false         1295          0       1301        150
+05-mongo-dyn-reactive          true          1165          0       1359        210
+06-opt-vso-kv                  false         1344          0        690         50
+06-opt-vso-kv                  true          1287          0        810        190
+06-opt-vso-dyn                 false         1310          0        726        100
+06-opt-vso-dyn                 true          1282          0        794        190
+06-opt-agentinit-kv            false         1316          0        811        200
+06-opt-agentinit-kv            true          1296          0        800        150
+06-opt-agentinit-dyn           false         1368          0        887        160
+06-opt-agentinit-dyn           true          1257          0        792         50
+06-opt-agent-kv                false         1287          0        689        110
+06-opt-agent-kv                true          1184          0        715        210
+06-opt-agent-dyn               false         1274          0        716        110
+06-opt-agent-dyn               true          1119          0        872        200
+```
+
+### What the numbers show
+
+- **Blocking Mongo init costs ~0.6–0.7 s per start** (`mongo_block`, inside `beans`), and holds
+  readiness until Mongo answers. Deferring it moves all of that after Ready. The first request then
+  takes 60–130 ms instead of 50 ms, because the warm-up has already opened the connection pool.
+- **The reactive driver doesn't start faster than deferred sync.** Its warm-up (~1.3 s) and first
+  request (150–210 ms) are slower. What helps is deferring the work.
+- **Static KV vs dynamic creds makes no difference in the JVM.** Both cost 7 Vault requests and
+  ~1.2–1.35 s of `vault` in 05. With VSO, dynamic creds cost nothing at startup, since VSO holds the
+  lease, but all pods share one Mongo user.
+- **AOT matters more with a bigger app.** `bean_defs` falls 1.3–1.4 s → 0.12–0.17 s, so the JVM
+  total drops ~0.9–1.2 s (02: ~0.45–0.6 s).
+- **All together** (06 VSO: AOT + files + deferred) vs the usual setup (05 KV, blocking, no AOT):
+  JVM 6.6 → 4.1 s (−38%), Ready 8.1 → 5.3 s.
+- **The ranking is the same as 02–04:** VSO ≈ agent init < agent sidecar ≈ 05.
+
 ## Run it
 
 From the repo root, `make 02`, `make 03`, `make 04` (one app) or `make compare` (all three) runs
-[`start.sh`](start.sh). It asks with fzf where to run:
+[`start.sh`](start.sh). (05/06: `make 05`, `make 06`, `make compare-mongo`, always on k3d.) It asks with fzf where to run:
 
 | Pick | Runs | Same as |
 |---|---|---|
@@ -181,10 +308,18 @@ make k3d-down            # delete the cluster
   `--kubeconfig-switch-context=false` and passes `--context k3d-vault-startup` everywhere.
 - **What `up` installs:**
   - the `hashicorp/vault` chart (dev server + Agent Injector) and the `hashicorp/vault-secrets-operator` chart;
-  - a toxiproxy Deployment in front of Vault (`vault-latency.vault.svc:8200`);
-  - the Vault setup in [`k8s/infra/vault-setup.sh`](k8s/infra/vault-setup.sh): KV seed, policy,
-    and Kubernetes auth role `vault-startup-demo` bound to the `vault-startup-demo` service account.
-- **What `up` deploys** through [`k8s/apps`](k8s/apps), as four deployments:
+  - MongoDB for 05/06 ([`k8s/infra/mongo.yaml`](k8s/infra/mongo.yaml), namespace `mongo`), seeded
+    by [`mongo-seed.js`](k8s/infra/mongo-seed.js) with `MONGO_SEED_DOCS` reference items and the
+    static user `startup-static`;
+  - a toxiproxy Deployment in front of Vault (`vault-latency.vault.svc:8200`) and MongoDB
+    (`mongo-latency.vault.svc:27017`, `MONGO_LATENCY_MS`);
+  - the Vault setup in [`k8s/infra/vault-setup.sh`](k8s/infra/vault-setup.sh): KV seed (including
+    the static Mongo creds at `secret/vault-startup-demo-mongo`), the database engine with role
+    `vault-startup-demo-mongo`, policy, and Kubernetes auth role `vault-startup-demo` bound to the
+    `vault-startup-demo` service account.
+- **What `up` deploys** through [`k8s/apps`](k8s/apps): the four 02–04 deployments below, plus
+  the twelve 05/06 deployments (see [05-06 MongoDB](#05-06-mongodb)). Those sit at 0 replicas: `up`
+  starts each one once as a smoke test, and `run` starts them only while it measures them.
 
   | Deployment | Folder | Secrets via |
   |---|---|---|
@@ -201,7 +336,8 @@ make k3d-down            # delete the cluster
   - the app's wait for the agent sidecar (`AGENT_WAIT`, 04 only);
   - the Vault Agent init container's duration (from its log timestamps);
   - wall time from scale-up to Ready;
-  - the Vault requests that came through the latency proxy.
+  - the Vault requests that came through the latency proxy;
+  - for 05/06: the `MONGO_INIT` line, and the time of the first `GET /items` right after Ready.
 - **VSO talks to Vault directly.** It syncs in the background and is never on a pod's startup path.
 
 ### On your own cluster

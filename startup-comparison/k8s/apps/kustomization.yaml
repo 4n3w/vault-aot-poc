@@ -1,4 +1,5 @@
-# kubectl apply -k startup-comparison/k8s/apps - deploys 02, 03 (two ways) and 04 side by side.
+# kubectl apply -k startup-comparison/k8s/apps - deploys 02, 03 (two ways), 04, 05 and 06 side by side.
+# 05/06 also need MongoDB (k8s/infra/mongo.yaml) and the Vault database engine (k8s/infra/vault-setup.sh).
 # On your own cluster: point the images at your registry and the Vault addresses/role at your Vault
 # (VAULT_ADDR in 02, vault.hashicorp.com/service in the injector annotations of 03 agent-init and 04,
 # VSO's VaultConnection).
@@ -10,7 +11,15 @@ resources:
   - ../../../03-vault-with-file-secrets-and-aot/k8s/vso
   - ../../../03-vault-with-file-secrets-and-aot/k8s/agent-init
   - ../../../04-vault-agent-and-aot/k8s
+  - ../../../05-mongo-baseline/k8s
+  - ../../../06-mongo-optimized/k8s/vso
+  - ../../../06-mongo-optimized/k8s/agent-init
+  - ../../../06-mongo-optimized/k8s/agent
 images:
   - { name: vault-startup-baseline, newName: vault-startup-baseline, newTag: local }
   - { name: vault-startup-file-secrets, newName: vault-startup-file-secrets, newTag: local }
   - { name: vault-startup-vault-agent, newName: vault-startup-vault-agent, newTag: local }
+  - { name: vault-startup-mongo-baseline, newName: vault-startup-mongo-baseline, newTag: local }
+  - { name: vault-startup-mongo-reactive, newName: vault-startup-mongo-reactive, newTag: local }
+  - { name: vault-startup-mongo-files, newName: vault-startup-mongo-files, newTag: local }
+  - { name: vault-startup-mongo-agent, newName: vault-startup-mongo-agent, newTag: local }

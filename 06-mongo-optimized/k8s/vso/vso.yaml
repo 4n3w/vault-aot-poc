@@ -1,0 +1,40 @@
+# Mongo creds for the opt-vso-* deployments. Reuses 03's VaultAuth (vault-startup-demo) and, for db.password,
+# 03's vault-startup-demo-secrets Secret. Keys are named after the Spring properties, so each becomes a
+# configtree file the app reads as spring.mongodb.username / spring.mongodb.password.
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultStaticSecret
+metadata:
+  name: vault-startup-demo-mongo-kv
+spec:
+  vaultAuthRef: vault-startup-demo
+  type: kv-v2
+  mount: secret
+  path: vault-startup-demo-mongo
+  refreshAfter: 60s
+  destination:
+    name: vault-startup-demo-mongo-kv
+    create: true
+    transformation:
+      excludeRaw: true
+---
+# Database engine: VSO holds the lease (renewing it) and writes username/password into the Secret. All pods
+# share that one Mongo user, and starting a pod costs no Vault call. In production also set
+# rolloutRestartTargets, so pods restart when VSO rotates the creds; it's left out here because a rollout in
+# the middle of a benchmark would skew it.
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultDynamicSecret
+metadata:
+  name: vault-startup-demo-mongo-dyn
+spec:
+  vaultAuthRef: vault-startup-demo
+  mount: database
+  path: creds/vault-startup-demo-mongo
+  destination:
+    name: vault-startup-demo-mongo-dyn
+    create: true
+    transformation:
+      excludeRaw: true
+      excludes: ["^username$", "^password$"]
+      templates:
+        spring.mongodb.username: { text: '{{ get .Secrets "username" }}' }
+        spring.mongodb.password: { text: '{{ get .Secrets "password" }}' }

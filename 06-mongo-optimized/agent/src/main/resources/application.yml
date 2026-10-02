@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: startup-mongo-agent
+  cloud:
+    vault:
+      uri: ${VAULT_AGENT_ADDR:http://127.0.0.1:8200}
+      fail-fast: true
+      authentication: NONE      # the agent authenticates
+      kv:
+        enabled: true
+        backend: secret
+        # KV-creds variants: SPRING_CLOUD_VAULT_KV_APPLICATION_NAME=vault-startup-demo,vault-startup-demo-mongo
+        application-name: vault-startup-demo
+        default-context: ""     # don't also read secret/application
+        profiles: ""            # don't read secret/vault-startup-demo/<profile>
+      # Dynamic-creds variants: SPRING_CLOUD_VAULT_MONGODB_ENABLED=true reads database/creds/<role>.
+      mongodb:
+        enabled: false
+        backend: database
+        role: vault-startup-demo-mongo
+        # Spring Cloud Vault 5.0 still defaults these to spring.data.mongodb.*, which Spring Boot 4 no
+        # longer reads (it moved to spring.mongodb.*): the creds would load but never be used.
+        username-property: spring.mongodb.username
+        password-property: spring.mongodb.password
+  mongodb:
+    host: ${MONGO_HOST:mongo-latency.vault.svc}   # through the latency proxy, like Vault
+    port: 27017
+    database: startup
+    authentication-database: admin
+    # username/password: from Vault (KV or the database engine), or from files
+  data:
+    mongodb:
+      auto-index-creation: false   # ReferenceDataCache creates the indexes itself, so the time can be measured
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+# Blocking variants add Mongo to readiness at runtime:
+#   MANAGEMENT_ENDPOINT_HEALTH_GROUP_READINESS_INCLUDE=readinessState,mongo

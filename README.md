@@ -9,9 +9,11 @@ question:
 | [`02-baseline-no-aot`](02-baseline-no-aot/README.md) | The usual setup, no AOT: Spring Cloud Vault logs in and reads Vault on every start. The yardstick for 03 and 04 |
 | [`03-vault-with-file-secrets-and-aot`](03-vault-with-file-secrets-and-aot/README.md) | Secrets as files (Vault Secrets Operator or a Vault Agent init container) + AOT: no Vault client, no Vault call at startup |
 | [`04-vault-agent-and-aot`](04-vault-agent-and-aot/README.md) | A Vault Agent sidecar handles login; Spring Cloud Vault reads through it + AOT |
-| [`startup-comparison`](startup-comparison/README.md) | Runs 02–04 side by side (locally and on a k3d cluster) and has the results |
+| [`05-mongo-baseline`](05-mongo-baseline/README.md) | 02 plus MongoDB: Mongo creds from Vault (KV or the database engine), and Mongo startup work done blocking, deferred or reactive |
+| [`06-mongo-optimized`](06-mongo-optimized/README.md) | 05 with AOT + deferred Mongo init, through each of 03's and 04's delivery options |
+| [`startup-comparison`](startup-comparison/README.md) | Runs 02–06 side by side (02–04 locally or on a k3d cluster, 05–06 on k3d) and has the results |
 
-02–04 build on 01. Their AOT builds use the approach 01 recommends: no `vault://` import in the
+02–06 build on 01. Their AOT builds use the approach 01 recommends: no `vault://` import in the
 packaged config.
 
 ## Layout
@@ -22,6 +24,9 @@ Makefile                             make targets for everything below
 02-baseline-no-aot/                  app + k8s/ manifest
 03-vault-with-file-secrets-and-aot/  app + k8s/vso/, k8s/agent-init/ + local agent (render) config
 04-vault-agent-and-aot/              app + k8s/ manifest + local agent (proxy) config
+05-mongo-baseline/                   sync/ and reactive/ apps + k8s/ (6 deployments)
+06-mongo-optimized/                  files/ and agent/ apps + k8s/vso/, k8s/agent-init/, k8s/agent/
+mongo-common/                        shared library for 05/06: entity, repository, startup warm-up, /items
 startup-comparison/                  run.sh (local), k3d.sh (cluster), Dockerfile, k8s/apps, k8s/infra, results
 startup-timing/                      shared library: logs STARTUP_TIMING + SPRING_INIT lines per app start
 ```
@@ -36,6 +41,8 @@ Everything runs from the repo root through `make` (`make` alone lists the target
 | `make 01-jar` | 01: pick one scenario and only build it, to see `processAot` fail or succeed |
 | `make 02`, `make 03`, `make 04` | One app, AOT off and on. fzf asks **where** to run: `local` (Vault dev server + latency proxy on this machine) or `k3d` (pods on the local cluster, which is created on first use) |
 | `make compare` | 02, 03 and 04 side by side, local or k3d |
+| `make 05`, `make 06` | MongoDB baseline / optimized, AOT off and on, on k3d |
+| `make compare-mongo` | 05 and 06 side by side (12 deployments; ~30 min at `RUNS=5`) |
 | `make k3d-up` / `make k3d-down` | Create the k3d cluster (or rebuild + redeploy the apps after code changes) / delete it |
 | `make build`, `make clean`, `make prereqs` | Build everything, clean up, check which tools are installed |
 
@@ -43,6 +50,8 @@ Settings you can pass:
 - **01:** `SCENARIOS="naive runtime-import"`, `SCENARIOS=all` or `SCENARIO=naive` skip the fzf picker.
 - **02–04:** `WHERE=local|k3d` skips the fzf picker. `RUNS=3`, `VAULT_LATENCY_MS=50` and
   `AOT=off|on|both` tune the run.
+- **05–06:** k3d only. The same settings, plus `MONGO_LATENCY_MS` (default: `VAULT_LATENCY_MS`) and
+  `MONGO_SEED_DOCS` (default 5000; applied by `make k3d-up`).
 
 Without fzf or a terminal, 01 runs all scenarios and 02–04 run locally.
 
@@ -60,11 +69,12 @@ Cloud). Plain Gradle works too, e.g. `./gradlew :03-vault-with-file-secrets-and-
 | 01, local comparison | `vault` CLI (`brew install hashicorp/tap/vault`) |
 | 01 scenario picker | `fzf` (`brew install fzf`); without it, `make 01` runs all scenarios |
 | Local comparison | `toxiproxy`, `jq` (`brew install toxiproxy jq`) |
-| k3d comparison | Docker, `k3d`, `helm`, `kubectl`, `jq` |
+| k3d comparison (02–06) | Docker, `k3d`, `helm`, `kubectl`, `jq` |
 
 ## Startup timing lines
 
-Apps 02–04 log two lines when they're ready. They come from `startup-timing`, which is
+Apps 02–06 log two lines when they're ready (05/06 add a `MONGO_INIT` line, see
+[05](05-mongo-baseline/README.md#what-each-mode-does-at-startup)). They come from `startup-timing`, which is
 registered through `META-INF/spring.factories`, so the apps need no code for it:
 
 ```

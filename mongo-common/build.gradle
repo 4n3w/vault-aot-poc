@@ -1,0 +1,20 @@
+plugins {
+    id 'java-library'
+    id 'io.spring.dependency-management'
+}
+
+dependencyManagement {
+    imports { mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES }
+}
+
+dependencies {
+    // Provided by the apps: the sync apps bring spring-boot-starter-data-mongodb, the reactive app the
+    // -reactive starter. Only the classes an app imports are loaded, so the sync ones never load there.
+    compileOnly 'org.springframework.boot:spring-boot-starter-data-mongodb'
+    compileOnly 'org.springframework.boot:spring-boot-starter-webmvc'
+}
+
+// The Spring Boot plugin adds -parameters to its own projects, not to plain libraries. Spring Data's AOT
+// repository generation (processAot in every app) fails on ReferenceItemRepository without it:
+//   IllegalArgumentException: MethodParameter.getParameterName() must not be null
+tasks.withType(JavaCompile).configureEach { options.compilerArgs << '-parameters' }

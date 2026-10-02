@@ -1,5 +1,6 @@
-# Latency proxy in front of Vault: vault-latency.vault.svc:8200 -> vault.vault.svc:8200.
-# k3d.sh adds the latency toxic (VAULT_LATENCY_MS) once the pod is up.
+# Latency proxy in front of Vault: vault-latency.vault.svc:8200 -> vault.vault.svc:8200,
+# and in front of MongoDB (05/06): mongo-latency.vault.svc:27017 -> mongo.mongo.svc:27017.
+# k3d.sh adds the latency toxics (VAULT_LATENCY_MS, MONGO_LATENCY_MS) once the pod is up.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -7,7 +8,8 @@ metadata:
   namespace: vault
 data:
   toxiproxy.json: |
-    [{"name": "vault", "listen": "0.0.0.0:8200", "upstream": "vault.vault.svc:8200", "enabled": true}]
+    [{"name": "vault", "listen": "0.0.0.0:8200", "upstream": "vault.vault.svc:8200", "enabled": true},
+     {"name": "mongo", "listen": "0.0.0.0:27017", "upstream": "mongo.mongo.svc:27017", "enabled": true}]
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -28,6 +30,7 @@ spec:
           args: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
           ports:
             - { name: vault, containerPort: 8200 }
+            - { name: mongo, containerPort: 27017 }
             - { name: api, containerPort: 8474 }
           readinessProbe:
             httpGet: { path: /version, port: api }
@@ -47,3 +50,13 @@ spec:
   selector: { app: toxiproxy }
   ports:
     - { name: vault, port: 8200, targetPort: vault }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-latency
+  namespace: vault
+spec:
+  selector: { app: toxiproxy }
+  ports:
+    - { name: mongo, port: 27017, targetPort: mongo }

@@ -1,0 +1,123 @@
+# 06 opt-agent-kv: AOT + deferred Mongo init, Spring Cloud Vault -> Vault Agent sidecar -> Vault (as in 04).
+# Mongo creds: KV path secret/vault-startup-demo-mongo.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opt-agent-kv
+  labels: { app: opt-agent-kv }
+spec:
+  replicas: 0   # idle until benchmarked: 12 one-CPU pods would not fit next to 02-04 on a laptop
+  selector: { matchLabels: { app: opt-agent-kv } }
+  template:
+    metadata:
+      labels: { app: opt-agent-kv }
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: vault-startup-demo
+        vault.hashicorp.com/service: http://vault-latency.vault.svc:8200
+        vault.hashicorp.com/agent-cache-enable: "true"
+        vault.hashicorp.com/agent-cache-use-auto-auth-token: "force"
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-mongo-agent:local
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-c"]
+          args:
+            - |
+              t0=$(date +%s%3N)
+              until (exec 3<>/dev/tcp/127.0.0.1/8200) 2>/dev/null; do sleep 0.05; done
+              echo "AGENT_WAIT ms=$(( $(date +%s%3N) - t0 ))"
+              exec java -jar /app/app.jar
+          env:
+            - { name: JAVA_TOOL_OPTIONS, value: "-Dspring.aot.enabled=true" }
+            - { name: SPRING_CONFIG_IMPORT, value: "vault://" }
+            - { name: VAULT_AGENT_ADDR, value: "http://127.0.0.1:8200" }
+            - { name: MONGO_INIT, value: "deferred" }
+            - { name: MONGO_CREDS, value: "kv" }
+            - { name: SPRING_CLOUD_VAULT_KV_APPLICATION_NAME, value: "vault-startup-demo,vault-startup-demo-mongo" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opt-agent-kv
+spec:
+  selector: { app: opt-agent-kv }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# 06 opt-agent-dyn: AOT + deferred Mongo init, Spring Cloud Vault -> Vault Agent sidecar -> Vault (as in 04).
+# Mongo creds: database engine via the agent proxy.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opt-agent-dyn
+  labels: { app: opt-agent-dyn }
+spec:
+  replicas: 0   # idle until benchmarked: 12 one-CPU pods would not fit next to 02-04 on a laptop
+  selector: { matchLabels: { app: opt-agent-dyn } }
+  template:
+    metadata:
+      labels: { app: opt-agent-dyn }
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: vault-startup-demo
+        vault.hashicorp.com/service: http://vault-latency.vault.svc:8200
+        vault.hashicorp.com/agent-cache-enable: "true"
+        vault.hashicorp.com/agent-cache-use-auto-auth-token: "force"
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-mongo-agent:local
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-c"]
+          args:
+            - |
+              t0=$(date +%s%3N)
+              until (exec 3<>/dev/tcp/127.0.0.1/8200) 2>/dev/null; do sleep 0.05; done
+              echo "AGENT_WAIT ms=$(( $(date +%s%3N) - t0 ))"
+              exec java -jar /app/app.jar
+          env:
+            - { name: JAVA_TOOL_OPTIONS, value: "-Dspring.aot.enabled=true" }
+            - { name: SPRING_CONFIG_IMPORT, value: "vault://" }
+            - { name: VAULT_AGENT_ADDR, value: "http://127.0.0.1:8200" }
+            - { name: MONGO_INIT, value: "deferred" }
+            - { name: MONGO_CREDS, value: "dynamic" }
+            - { name: SPRING_CLOUD_VAULT_MONGODB_ENABLED, value: "true" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opt-agent-dyn
+spec:
+  selector: { app: opt-agent-dyn }
+  ports:
+    - { name: http, port: 80, targetPort: http }

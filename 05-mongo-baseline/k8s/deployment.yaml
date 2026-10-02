@@ -1,0 +1,295 @@
+# 05 mongo-kv-blocking: like 02 (Spring Cloud Vault -> Vault itself, AOT off by default), plus MongoDB.
+# Creds: static Mongo user from KV secret/vault-startup-demo-mongo (one more KV read).
+# Init:  indexes + cache loaded during bean creation; readiness includes Mongo.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-kv-blocking
+  labels: { app: mongo-kv-blocking }
+spec:
+  replicas: 0   # idle until benchmarked: 12 one-CPU pods would not fit next to 02-04 on a laptop
+  selector: { matchLabels: { app: mongo-kv-blocking } }
+  template:
+    metadata:
+      labels: { app: mongo-kv-blocking }
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-mongo-baseline:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: VAULT_ADDR, value: "http://vault-latency.vault.svc:8200" }
+            - { name: SPRING_CONFIG_IMPORT, value: "vault://" }
+            - { name: MONGO_INIT, value: "blocking" }
+            - { name: MONGO_CREDS, value: "kv" }
+            - { name: SPRING_CLOUD_VAULT_KV_APPLICATION_NAME, value: "vault-startup-demo,vault-startup-demo-mongo" }
+            - { name: MANAGEMENT_ENDPOINT_HEALTH_GROUP_READINESS_INCLUDE, value: "readinessState,mongo" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-kv-blocking
+spec:
+  selector: { app: mongo-kv-blocking }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# 05 mongo-kv-deferred: like 02 (Spring Cloud Vault -> Vault itself, AOT off by default), plus MongoDB.
+# Creds: static Mongo user from KV secret/vault-startup-demo-mongo (one more KV read).
+# Init:  same work on a virtual thread after ready; readiness doesn't wait for Mongo.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-kv-deferred
+  labels: { app: mongo-kv-deferred }
+spec:
+  replicas: 0   # idle until benchmarked: 12 one-CPU pods would not fit next to 02-04 on a laptop
+  selector: { matchLabels: { app: mongo-kv-deferred } }
+  template:
+    metadata:
+      labels: { app: mongo-kv-deferred }
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-mongo-baseline:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: VAULT_ADDR, value: "http://vault-latency.vault.svc:8200" }
+            - { name: SPRING_CONFIG_IMPORT, value: "vault://" }
+            - { name: MONGO_INIT, value: "deferred" }
+            - { name: MONGO_CREDS, value: "kv" }
+            - { name: SPRING_CLOUD_VAULT_KV_APPLICATION_NAME, value: "vault-startup-demo,vault-startup-demo-mongo" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-kv-deferred
+spec:
+  selector: { app: mongo-kv-deferred }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# 05 mongo-kv-reactive: like 02 (Spring Cloud Vault -> Vault itself, AOT off by default), plus MongoDB.
+# Creds: static Mongo user from KV secret/vault-startup-demo-mongo (one more KV read).
+# Init:  reactive driver; same work as a pipeline subscribed after ready.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-kv-reactive
+  labels: { app: mongo-kv-reactive }
+spec:
+  replicas: 0   # idle until benchmarked: 12 one-CPU pods would not fit next to 02-04 on a laptop
+  selector: { matchLabels: { app: mongo-kv-reactive } }
+  template:
+    metadata:
+      labels: { app: mongo-kv-reactive }
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-mongo-reactive:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: VAULT_ADDR, value: "http://vault-latency.vault.svc:8200" }
+            - { name: SPRING_CONFIG_IMPORT, value: "vault://" }
+            - { name: MONGO_INIT, value: "reactive" }
+            - { name: MONGO_CREDS, value: "kv" }
+            - { name: SPRING_CLOUD_VAULT_KV_APPLICATION_NAME, value: "vault-startup-demo,vault-startup-demo-mongo" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-kv-reactive
+spec:
+  selector: { app: mongo-kv-reactive }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# 05 mongo-dyn-blocking: like 02 (Spring Cloud Vault -> Vault itself, AOT off by default), plus MongoDB.
+# Creds: a new Mongo user per pod from the database engine (database/creds/vault-startup-demo-mongo).
+# Init:  indexes + cache loaded during bean creation; readiness includes Mongo.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-dyn-blocking
+  labels: { app: mongo-dyn-blocking }
+spec:
+  replicas: 0   # idle until benchmarked: 12 one-CPU pods would not fit next to 02-04 on a laptop
+  selector: { matchLabels: { app: mongo-dyn-blocking } }
+  template:
+    metadata:
+      labels: { app: mongo-dyn-blocking }
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-mongo-baseline:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: VAULT_ADDR, value: "http://vault-latency.vault.svc:8200" }
+            - { name: SPRING_CONFIG_IMPORT, value: "vault://" }
+            - { name: MONGO_INIT, value: "blocking" }
+            - { name: MONGO_CREDS, value: "dynamic" }
+            - { name: SPRING_CLOUD_VAULT_MONGODB_ENABLED, value: "true" }
+            - { name: MANAGEMENT_ENDPOINT_HEALTH_GROUP_READINESS_INCLUDE, value: "readinessState,mongo" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-dyn-blocking
+spec:
+  selector: { app: mongo-dyn-blocking }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# 05 mongo-dyn-deferred: like 02 (Spring Cloud Vault -> Vault itself, AOT off by default), plus MongoDB.
+# Creds: a new Mongo user per pod from the database engine (database/creds/vault-startup-demo-mongo).
+# Init:  same work on a virtual thread after ready; readiness doesn't wait for Mongo.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-dyn-deferred
+  labels: { app: mongo-dyn-deferred }
+spec:
+  replicas: 0   # idle until benchmarked: 12 one-CPU pods would not fit next to 02-04 on a laptop
+  selector: { matchLabels: { app: mongo-dyn-deferred } }
+  template:
+    metadata:
+      labels: { app: mongo-dyn-deferred }
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-mongo-baseline:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: VAULT_ADDR, value: "http://vault-latency.vault.svc:8200" }
+            - { name: SPRING_CONFIG_IMPORT, value: "vault://" }
+            - { name: MONGO_INIT, value: "deferred" }
+            - { name: MONGO_CREDS, value: "dynamic" }
+            - { name: SPRING_CLOUD_VAULT_MONGODB_ENABLED, value: "true" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-dyn-deferred
+spec:
+  selector: { app: mongo-dyn-deferred }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# 05 mongo-dyn-reactive: like 02 (Spring Cloud Vault -> Vault itself, AOT off by default), plus MongoDB.
+# Creds: a new Mongo user per pod from the database engine (database/creds/vault-startup-demo-mongo).
+# Init:  reactive driver; same work as a pipeline subscribed after ready.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-dyn-reactive
+  labels: { app: mongo-dyn-reactive }
+spec:
+  replicas: 0   # idle until benchmarked: 12 one-CPU pods would not fit next to 02-04 on a laptop
+  selector: { matchLabels: { app: mongo-dyn-reactive } }
+  template:
+    metadata:
+      labels: { app: mongo-dyn-reactive }
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-mongo-reactive:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: VAULT_ADDR, value: "http://vault-latency.vault.svc:8200" }
+            - { name: SPRING_CONFIG_IMPORT, value: "vault://" }
+            - { name: MONGO_INIT, value: "reactive" }
+            - { name: MONGO_CREDS, value: "dynamic" }
+            - { name: SPRING_CLOUD_VAULT_MONGODB_ENABLED, value: "true" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-dyn-reactive
+spec:
+  selector: { app: mongo-dyn-reactive }
+  ports:
+    - { name: http, port: 80, targetPort: http }

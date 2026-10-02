@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: startup-mongo-files
+  config:
+    # optional: processAot runs without the directories; the app still fails if db.password is missing.
+    # /vault/secrets: db.password (VSO Secret, or every file the agent init container renders).
+    # /vault/mongo:   spring.mongodb.username / .password from VSO (agent init renders them into /vault/secrets).
+    import:
+      - optional:configtree:${SECRETS_DIR:/vault/secrets}/
+      - optional:configtree:${MONGO_SECRETS_DIR:/vault/mongo}/
+  mongodb:
+    host: ${MONGO_HOST:mongo-latency.vault.svc}   # through the latency proxy, like Vault
+    port: 27017
+    database: startup
+    authentication-database: admin
+    # username/password: from Vault (KV or the database engine), or from files
+  data:
+    mongodb:
+      auto-index-creation: false   # ReferenceDataCache creates the indexes itself, so the time can be measured
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+# Blocking variants add Mongo to readiness at runtime:
+#   MANAGEMENT_ENDPOINT_HEALTH_GROUP_READINESS_INCLUDE=readinessState,mongo

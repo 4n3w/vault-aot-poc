@@ -3,3 +3,5 @@ path "secret/data/vault-startup-demo"   { capabilities = ["read"] }
 path "secret/data/vault-startup-demo/*" { capabilities = ["read"] }
 path "secret/data/application"          { capabilities = ["read"] }
 path "secret/data/application/*"        { capabilities = ["read"] }
+path "secret/data/vault-startup-demo-mongo"     { capabilities = ["read"] }
+path "database/creds/vault-startup-demo-mongo"  { capabilities = ["read"] }

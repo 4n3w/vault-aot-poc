@@ -1,0 +1,107 @@
+# 06 opt-vso-kv: AOT + deferred Mongo init, secrets as files synced by Vault Secrets Operator - no Vault call at startup.
+# /vault/secrets: db.password (03's Secret); /vault/mongo: Mongo creds (VaultStaticSecret of the KV path).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opt-vso-kv
+  labels: { app: opt-vso-kv }
+spec:
+  replicas: 0   # idle until benchmarked: 12 one-CPU pods would not fit next to 02-04 on a laptop
+  selector: { matchLabels: { app: opt-vso-kv } }
+  template:
+    metadata:
+      labels: { app: opt-vso-kv }
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-mongo-files:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: JAVA_TOOL_OPTIONS, value: "-Dspring.aot.enabled=true" }
+            - { name: MONGO_INIT, value: "deferred" }
+            - { name: MONGO_CREDS, value: "kv" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+          volumeMounts:
+            - { name: secrets, mountPath: /vault/secrets, readOnly: true }
+            - { name: mongo, mountPath: /vault/mongo, readOnly: true }
+      volumes:
+        - name: secrets
+          secret: { secretName: vault-startup-demo-secrets }
+        - name: mongo
+          secret: { secretName: vault-startup-demo-mongo-kv }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opt-vso-kv
+spec:
+  selector: { app: opt-vso-kv }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# 06 opt-vso-dyn: AOT + deferred Mongo init, secrets as files synced by Vault Secrets Operator - no Vault call at startup.
+# /vault/secrets: db.password (03's Secret); /vault/mongo: Mongo creds (VaultDynamicSecret: VSO holds one database-engine lease and shares the creds).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opt-vso-dyn
+  labels: { app: opt-vso-dyn }
+spec:
+  replicas: 0   # idle until benchmarked: 12 one-CPU pods would not fit next to 02-04 on a laptop
+  selector: { matchLabels: { app: opt-vso-dyn } }
+  template:
+    metadata:
+      labels: { app: opt-vso-dyn }
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-mongo-files:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: JAVA_TOOL_OPTIONS, value: "-Dspring.aot.enabled=true" }
+            - { name: MONGO_INIT, value: "deferred" }
+            - { name: MONGO_CREDS, value: "dynamic" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+          volumeMounts:
+            - { name: secrets, mountPath: /vault/secrets, readOnly: true }
+            - { name: mongo, mountPath: /vault/mongo, readOnly: true }
+      volumes:
+        - name: secrets
+          secret: { secretName: vault-startup-demo-secrets }
+        - name: mongo
+          secret: { secretName: vault-startup-demo-mongo-dyn }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opt-vso-dyn
+spec:
+  selector: { app: opt-vso-dyn }
+  ports:
+    - { name: http, port: 80, targetPort: http }

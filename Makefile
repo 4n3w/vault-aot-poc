@@ -18,14 +18,16 @@ endif
 # Knobs, passed through to the scripts.
 RUNS ?= 5
 VAULT_LATENCY_MS ?= 25
+MONGO_LATENCY_MS ?= $(VAULT_LATENCY_MS)
+MONGO_SEED_DOCS ?= 5000
 AOT ?= both
 WHERE ?=
-export RUNS VAULT_LATENCY_MS AOT WHERE
+export RUNS VAULT_LATENCY_MS MONGO_LATENCY_MS MONGO_SEED_DOCS AOT WHERE
 SCENARIOS ?=
 SCENARIO ?=
 DEAD_VAULT := http://127.0.0.1:1
 
-.PHONY: help build clean prereqs 01 01-jar 02 03 04 compare k3d-up k3d-down
+.PHONY: help build clean prereqs 01 01-jar 02 03 04 compare 05 06 compare-mongo k3d-up k3d-down
 
 ##@ General
 help: ## List targets and knobs
@@ -33,6 +35,7 @@ help: ## List targets and knobs
 	@echo
 	@echo "Knobs: 01:    SCENARIOS=\"naive runtime-import ...\"|all  SCENARIO=<one>   (no value = pick with fzf)"
 	@echo "       02-04: WHERE=local|k3d (no value = pick with fzf)  RUNS=$(RUNS)  VAULT_LATENCY_MS=$(VAULT_LATENCY_MS)  AOT=$(AOT) (off|on|both)"
+	@echo "       05-06: k3d only; as 02-04 plus MONGO_LATENCY_MS=$(MONGO_LATENCY_MS)  MONGO_SEED_DOCS=$(MONGO_SEED_DOCS) (seeded by k3d-up)"
 
 build: ## Build every project (processAot runs with Vault unreachable)
 	VAULT_ADDR=$(DEAD_VAULT) VAULT_TOKEN= ./gradlew build
@@ -48,7 +51,7 @@ prereqs: ## Show which tools are installed, and what needs them
 	check fzf "01 scenario picker (brew install fzf)"; \
 	check toxiproxy-server "02-04 local (brew install toxiproxy)"; \
 	check jq "02-04 local and k3d (brew install jq)"; \
-	check docker "k3d"; check k3d "k3d"; check helm "k3d"; check kubectl "k3d"
+	check docker "k3d (02-06)"; check k3d "k3d (02-06)"; check helm "k3d (02-06)"; check kubectl "k3d (02-06)"
 
 ##@ 01 - Vault under Spring AOT
 01: ## Pick scenarios (fzf), build them with Vault unreachable, run the jars against Vault
@@ -83,7 +86,17 @@ prereqs: ## Show which tools are installed, and what needs them
 compare: ## 02, 03 and 04 side by side
 	startup-comparison/start.sh all
 
-##@ k3d cluster (02-04 create it on first use; these are for managing it)
+##@ 05-06 - Startup with Vault + MongoDB (k3d only)
+05: ## 05 MongoDB baseline: vault:// in the JVM; KV vs dynamic creds; blocking vs deferred vs reactive
+	startup-comparison/start.sh 05
+
+06: ## 06 MongoDB optimized: AOT + deferred init; VSO / agent init / agent sidecar; KV vs dynamic creds
+	startup-comparison/start.sh 06
+
+compare-mongo: ## 05 and 06 side by side (12 deployments x AOT off/on - ~30 min at RUNS=5)
+	startup-comparison/start.sh mongo
+
+##@ k3d cluster (02-06 create it on first use; these are for managing it)
 k3d-up: ## Create cluster vault-startup, or rebuild images + redeploy the apps after code changes
 	startup-comparison/k3d.sh up
 
