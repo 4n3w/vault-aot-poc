@@ -1,0 +1,48 @@
+# Secrets from files + AOT, fed by Vault Secrets Operator: VSO syncs secret/vault-startup-demo into
+# the vault-startup-demo-secrets Secret, mounted here as one file per key. No Vault call at startup.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: file-secrets
+  labels: { app: file-secrets }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: file-secrets } }
+  template:
+    metadata:
+      labels: { app: file-secrets }
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-file-secrets:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: JAVA_TOOL_OPTIONS, value: -Dspring.aot.enabled=true }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+          volumeMounts:
+            - { name: secrets, mountPath: /vault/secrets, readOnly: true }
+      volumes:
+        - name: secrets
+          secret: { secretName: vault-startup-demo-secrets }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: file-secrets
+spec:
+  selector: { app: file-secrets }
+  ports:
+    - { name: http, port: 80, targetPort: http }

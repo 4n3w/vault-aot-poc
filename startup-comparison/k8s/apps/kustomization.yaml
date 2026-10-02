@@ -1,0 +1,16 @@
+# kubectl apply -k startup-comparison/k8s/apps - deploys 02, 03 (two ways) and 04 side by side.
+# On your own cluster: point the images at your registry and the Vault addresses/role at your Vault
+# (VAULT_ADDR in 02, vault.hashicorp.com/service in the injector annotations of 03 agent-init and 04,
+# VSO's VaultConnection).
+namespace: vault-startup
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - ../../../02-baseline-no-aot/k8s
+  - ../../../03-vault-with-file-secrets-and-aot/k8s/vso
+  - ../../../03-vault-with-file-secrets-and-aot/k8s/agent-init
+  - ../../../04-vault-agent-and-aot/k8s
+images:
+  - { name: vault-startup-baseline, newName: vault-startup-baseline, newTag: local }
+  - { name: vault-startup-file-secrets, newName: vault-startup-file-secrets, newTag: local }
+  - { name: vault-startup-vault-agent, newName: vault-startup-vault-agent, newTag: local }

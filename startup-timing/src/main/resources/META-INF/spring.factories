@@ -1,0 +1,4 @@
+org.springframework.boot.SpringApplicationRunListener=com.example.vaultaot.timing.StartupTimingRunListener
+# Times the vault:// config import (no effect in apps without Spring Cloud Vault)
+org.springframework.boot.context.config.ConfigDataLocationResolver=com.example.vaultaot.timing.VaultImportTiming$Resolver
+org.springframework.boot.context.config.ConfigDataLoader=com.example.vaultaot.timing.VaultImportTiming$Loader

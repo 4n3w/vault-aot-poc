@@ -1,0 +1,3 @@
+# Applies to any build context used with this Dockerfile: only the app jar is sent.
+**
+!build/libs/*.jar

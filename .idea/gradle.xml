@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="GradleSettings">
+    <option name="linkedExternalProjectsSettings">
+      <GradleProjectSettings>
+        <option name="externalProjectPath" value="$PROJECT_DIR$" />
+        <option name="gradleJvm" value="#JAVA_HOME" />
+        <option name="modules">
+          <set>
+            <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/01-aot-breakage" />
+            <option value="$PROJECT_DIR$/02-baseline-no-aot" />
+            <option value="$PROJECT_DIR$/03-vault-with-file-secrets-and-aot" />
+            <option value="$PROJECT_DIR$/04-vault-agent-and-aot" />
+            <option value="$PROJECT_DIR$/startup-timing" />
+          </set>
+        </option>
+      </GradleProjectSettings>
+    </option>
+  </component>
+</project>

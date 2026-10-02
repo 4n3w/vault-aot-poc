@@ -1,0 +1,6 @@
+# hashicorp/vault-secrets-operator chart, k3d only.
+# VSO talks to Vault directly (not through the latency proxy): it syncs in the background,
+# so it is never on a pod's startup path.
+defaultVaultConnection:
+  enabled: true
+  address: http://vault.vault.svc:8200

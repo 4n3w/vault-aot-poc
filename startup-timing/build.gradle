@@ -1,0 +1,13 @@
+plugins {
+    id 'java-library'
+    id 'io.spring.dependency-management'
+}
+
+dependencyManagement {
+    imports { mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES }
+}
+
+dependencies {
+    // Provided by the apps that use this library.
+    compileOnly 'org.springframework.boot:spring-boot'
+}

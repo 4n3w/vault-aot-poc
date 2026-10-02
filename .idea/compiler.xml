@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <bytecodeTargetLevel target="25" />
+  </component>
+  <component name="JavacSettings">
+    <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="vault-aot-poc.01-aot-breakage" options="-parameters" />
+      <module name="vault-aot-poc.01-aot-breakage.aot" options="-parameters" />
+      <module name="vault-aot-poc.01-aot-breakage.aotTest" options="-parameters" />
+      <module name="vault-aot-poc.01-aot-breakage.main" options="-parameters" />
+      <module name="vault-aot-poc.01-aot-breakage.test" options="-parameters" />
+      <module name="vault-aot-poc.02-baseline-no-aot" options="-parameters" />
+      <module name="vault-aot-poc.02-baseline-no-aot.aot" options="-parameters" />
+      <module name="vault-aot-poc.02-baseline-no-aot.aotTest" options="-parameters" />
+      <module name="vault-aot-poc.02-baseline-no-aot.main" options="-parameters" />
+      <module name="vault-aot-poc.02-baseline-no-aot.test" options="-parameters" />
+      <module name="vault-aot-poc.03-vault-with-file-secrets-and-aot" options="-parameters" />
+      <module name="vault-aot-poc.03-vault-with-file-secrets-and-aot.aot" options="-parameters" />
+      <module name="vault-aot-poc.03-vault-with-file-secrets-and-aot.aotTest" options="-parameters" />
+      <module name="vault-aot-poc.03-vault-with-file-secrets-and-aot.main" options="-parameters" />
+      <module name="vault-aot-poc.03-vault-with-file-secrets-and-aot.test" options="-parameters" />
+      <module name="vault-aot-poc.04-vault-agent-and-aot" options="-parameters" />
+      <module name="vault-aot-poc.04-vault-agent-and-aot.aot" options="-parameters" />
+      <module name="vault-aot-poc.04-vault-agent-and-aot.aotTest" options="-parameters" />
+      <module name="vault-aot-poc.04-vault-agent-and-aot.main" options="-parameters" />
+      <module name="vault-aot-poc.04-vault-agent-and-aot.test" options="-parameters" />
+      <module name="vault-aot-poc.example1-aot-breakage" options="-parameters" />
+      <module name="vault-aot-poc.example1-aot-breakage.aot" options="-parameters" />
+      <module name="vault-aot-poc.example1-aot-breakage.aotTest" options="-parameters" />
+      <module name="vault-aot-poc.example1-aot-breakage.main" options="-parameters" />
+      <module name="vault-aot-poc.example1-aot-breakage.test" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.baseline" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.baseline.aot" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.baseline.aotTest" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.baseline.main" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.baseline.test" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.file-secrets" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.file-secrets.aot" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.file-secrets.aotTest" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.file-secrets.main" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.file-secrets.test" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.vault-agent" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.vault-agent.aot" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.vault-agent.aotTest" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.vault-agent.main" options="-parameters" />
+      <module name="vault-aot-poc.example2-startup.vault-agent.test" options="-parameters" />
+    </option>
+  </component>
+</project>

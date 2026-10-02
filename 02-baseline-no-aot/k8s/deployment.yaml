@@ -1,0 +1,44 @@
+# Baseline: no AOT, no sidecar, no injection. Spring Cloud Vault logs in (KUBERNETES auth) and
+# reads Vault itself, through the latency proxy.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: baseline
+  labels: { app: baseline }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: baseline } }
+  template:
+    metadata:
+      labels: { app: baseline }
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-baseline:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: VAULT_ADDR, value: http://vault-latency.vault.svc:8200 }
+            - { name: SPRING_CONFIG_IMPORT, value: "vault://" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: baseline
+spec:
+  selector: { app: baseline }
+  ports:
+    - { name: http, port: 80, targetPort: http }

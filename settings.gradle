@@ -1,1 +1,7 @@
 rootProject.name = 'vault-aot-poc'
+
+include 'startup-timing'
+include '01-aot-breakage'
+include '02-baseline-no-aot'
+include '03-vault-with-file-secrets-and-aot'
+include '04-vault-agent-and-aot'

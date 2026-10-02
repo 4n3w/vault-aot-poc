@@ -1,0 +1,53 @@
+# Same file-secrets image, fed by a Vault Agent init container instead of VSO
+# (agent-pre-populate-only): log in, render one file per key into /vault/secrets, exit.
+# Secrets stay out of etcd, but the init container runs on every pod start.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: file-secrets-agent-init
+  labels: { app: file-secrets-agent-init }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: file-secrets-agent-init } }
+  template:
+    metadata:
+      labels: { app: file-secrets-agent-init }
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/agent-pre-populate-only: "true"
+        vault.hashicorp.com/role: vault-startup-demo
+        vault.hashicorp.com/service: http://vault-latency.vault.svc:8200
+        vault.hashicorp.com/agent-inject-secret-db.password: secret/data/vault-startup-demo
+        vault.hashicorp.com/agent-inject-template-db.password: |
+          {{- with secret "secret/data/vault-startup-demo" -}}{{ index .Data.data "db.password" }}{{- end -}}
+
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-file-secrets:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: JAVA_TOOL_OPTIONS, value: -Dspring.aot.enabled=true }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: file-secrets-agent-init
+spec:
+  selector: { app: file-secrets-agent-init }
+  ports:
+    - { name: http, port: 80, targetPort: http }

@@ -1,0 +1,13 @@
+# Secrets from files + AOT: Vault Secrets Operator (a synced k8s Secret mounted as a volume) or
+# a Vault Agent init container writes one file per key before the app starts. No Vault client.
+spring:
+  application:
+    name: startup-file-secrets
+  config:
+    # optional: processAot runs without the directory; the app itself still fails if db.password is missing.
+    import: optional:configtree:${SECRETS_DIR:/vault/secrets}/
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true

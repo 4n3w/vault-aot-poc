@@ -1,215 +1,111 @@
-# Vault under Spring AOT — PoC
+# Spring Boot + HashiCorp Vault: AOT and startup time
 
-Checks how `spring.config.import=vault://` (Spring Cloud Vault) behaves with Spring Boot AOT
-(`processAot` + `java -Dspring.aot.enabled=true`) on a plain JVM, and which fixes actually work.
+Spring Boot 4.1.1, Spring Cloud 2025.1.3 (Spring Cloud Vault 5.0.2), Java 25. One folder per
+question:
 
-Stack: Spring Boot 3.5.16, Spring Cloud 2025.0.3 (Spring Cloud Vault 4.3.x), Java 17, Gradle 8.13,
-Vault 1.21 dev server.
+| Folder | Intent |
+|---|---|
+| [`01-aot-breakage`](01-aot-breakage/README.md) | How `spring.config.import=vault://` breaks with Spring AOT (`processAot`), and which fixes actually work |
+| [`02-baseline-no-aot`](02-baseline-no-aot/README.md) | The usual setup, no AOT: Spring Cloud Vault logs in and reads Vault on every start. The yardstick for 03 and 04 |
+| [`03-vault-with-file-secrets-and-aot`](03-vault-with-file-secrets-and-aot/README.md) | Secrets as files (Vault Secrets Operator or a Vault Agent init container) + AOT: no Vault client, no Vault call at startup |
+| [`04-vault-agent-and-aot`](04-vault-agent-and-aot/README.md) | A Vault Agent sidecar handles login; Spring Cloud Vault reads through it + AOT |
+| [`startup-comparison`](startup-comparison/README.md) | Runs 02–04 side by side (locally and on a k3d cluster) and has the results |
 
-## Run it
+02–04 build on 01. Their AOT builds use the approach 01 recommends: no `vault://` import in the
+packaged config.
 
-```sh
-./run-poc.sh          # needs: java 17, gradle (or ./gradlew), vault CLI on PATH
+## Layout
+
+```
+Makefile                             make targets for everything below
+01-aot-breakage/                     one app, five build scenarios, run.sh, pick-scenarios.sh (fzf)
+02-baseline-no-aot/                  app + k8s/ manifest
+03-vault-with-file-secrets-and-aot/  app + k8s/vso/, k8s/agent-init/ + local agent (render) config
+04-vault-agent-and-aot/              app + k8s/ manifest + local agent (proxy) config
+startup-comparison/                  run.sh (local), k3d.sh (cluster), Dockerfile, k8s/apps, k8s/infra, results
+startup-timing/                      shared library: logs STARTUP_TIMING + SPRING_INIT lines per app start
 ```
 
-The script starts a Vault dev server (or reuses one on `127.0.0.1:8200`) and seeds
-`secret/vault-aot-poc` with `db.password` and `feature.audit.enabled=true`. It then builds every
-scenario with **Vault unreachable** (like a CI runner) and runs the jars that built against the
-live Vault. Logs go to `build/poc-logs/`.
+## Running
 
-Build a single scenario with `gradle bootJar -Paot=<scenario>`. Each scenario adds
-`src/scenarios/<scenario>/` to the classpath and can pass args to `processAot` (see `build.gradle`).
+Everything runs from the repo root through `make` (`make` alone lists the targets):
 
-| Scenario | Packaged config | `processAot` args |
+| Command | What it does |
+|---|---|
+| `make 01` | 01: pick AOT scenarios with fzf, build them with Vault unreachable, run the jars against Vault |
+| `make 01-jar` | 01: pick one scenario and only build it, to see `processAot` fail or succeed |
+| `make 02`, `make 03`, `make 04` | One app, AOT off and on. fzf asks **where** to run: `local` (Vault dev server + latency proxy on this machine) or `k3d` (pods on the local cluster, which is created on first use) |
+| `make compare` | 02, 03 and 04 side by side, local or k3d |
+| `make k3d-up` / `make k3d-down` | Create the k3d cluster (or rebuild + redeploy the apps after code changes) / delete it |
+| `make build`, `make clean`, `make prereqs` | Build everything, clean up, check which tools are installed |
+
+Settings you can pass:
+- **01:** `SCENARIOS="naive runtime-import"`, `SCENARIOS=all` or `SCENARIO=naive` skip the fzf picker.
+- **02–04:** `WHERE=local|k3d` skips the fzf picker. `RUNS=3`, `VAULT_LATENCY_MS=50` and
+  `AOT=off|on|both` tune the run.
+
+Without fzf or a terminal, 01 runs all scenarios and 02–04 run locally.
+
+`make` uses Java 25: the `java` on your PATH if it is 25, otherwise the first SDKMAN
+`~/.sdkman/candidates/java/25*` install.
+
+It's one Gradle build. Versions live in `build.gradle` (plugins) and `gradle.properties` (Spring
+Cloud). Plain Gradle works too, e.g. `./gradlew :03-vault-with-file-secrets-and-aot:bootJar`.
+
+## Prerequisites
+
+| For | Needs |
+|---|---|
+| Everything | Java 25 (on `PATH`, or installed with SDKMAN for `make`) |
+| 01, local comparison | `vault` CLI (`brew install hashicorp/tap/vault`) |
+| 01 scenario picker | `fzf` (`brew install fzf`); without it, `make 01` runs all scenarios |
+| Local comparison | `toxiproxy`, `jq` (`brew install toxiproxy jq`) |
+| k3d comparison | Docker, `k3d`, `helm`, `kubectl`, `jq` |
+
+## Startup timing lines
+
+Apps 02–04 log two lines when they're ready. They come from `startup-timing`, which is
+registered through `META-INF/spring.factories`, so the apps need no code for it:
+
+```
+STARTUP_TIMING app=startup-baseline aot=false jvm_init=248ms env_prepare=634ms vault=477ms spring_init=845ms runners=1ms total=1729ms
+SPRING_INIT app=startup-baseline aot=false spring_init=845ms context_prepare=56ms refresh=757ms bean_definitions=333ms config_classes=293ms web_server=180ms bean_creation=244ms
+```
+
+`STARTUP_TIMING` covers the whole start:
+
+| Field | Covers |
+|---|---|
+| `jvm_init` | JVM start → `SpringApplication` starting |
+| `env_prepare` | Loading config, **including the whole Vault fetch** |
+| `vault` | **Overall Vault time**: the part of `env_prepare` spent on the `vault://` import (setting up the Vault client, logging in, reading secrets). 0 when the app doesn't use Spring Cloud Vault |
+| `spring_init` | **Spring initialization:** creating the context and beans, and starting the embedded web server |
+| `runners` | `ApplicationRunner`s / `CommandLineRunner`s |
+| `total` | JVM start → application ready |
+
+`SPRING_INIT` breaks `spring_init` down. This is where Spring AOT makes its difference:
+
+| Field | Covers | With AOT |
 |---|---|---|
-| `naive` | `spring.config.import: vault://` | — |
-| `blank-import` | `spring.config.import: vault://` | `--spring.config.import=` (the commonly suggested fix) |
-| `optional-disabled` | `spring.config.import: optional:vault://` | `--spring.cloud.vault.enabled=false` |
-| `runtime-import` | **no import** (supplied at runtime) | — |
-| `runtime-import-flags` | **no import** | `--feature.audit.enabled=true` |
+| `context_prepare` | Creating the context and registering its sources | A little slower: loads the generated initializer |
+| `refresh` | `ApplicationContext.refresh()`, which is the next three rows | |
+| `bean_definitions` | Bean factory post-processing: `@Configuration` parsing, component scanning, `@Conditional` evaluation, BeanPostProcessor registration | **Mostly gone**: bean definitions are generated at build time |
+| `config_classes` | The `@Configuration` parsing and CGLIB enhancement within `bean_definitions` | **0** |
+| `web_server` | Creating the embedded Tomcat and initializing the servlet context | Unchanged |
+| `bean_creation` | The rest of refresh: instantiating singletons, starting lifecycle beans | Roughly unchanged |
 
-## Results
+How `vault` is measured: the library registers a config-data resolver and loader that run ahead of
+Spring Cloud Vault's own. They pass every `vault://` location straight to Vault's resolver and loader,
+and time them. Nothing changes about how Vault is called.
 
-Build with Vault unreachable (`fail-fast: true`):
+Vault time *outside* the JVM (a Vault Agent init container, or waiting for the agent sidecar) can't
+show up here. The k3d comparison adds it to get each pod's `vault_total`.
 
-```
-naive                  BUILD FAILED  (Connection refused)
-blank-import           BUILD FAILED  (Connection refused)
-optional-disabled      BUILD OK
-runtime-import         BUILD OK
-runtime-import-flags   BUILD OK
-```
+How the breakdown is measured: Spring Framework and Boot record named steps during startup
+(`spring.context.refresh`, `spring.context.beans.post-process`, `spring.context.config-classes.parse`,
+`spring.boot.webserver.create`). The library installs a small `ApplicationStartup` that times only
+those steps. If an app sets its own `ApplicationStartup`, the library leaves it alone and skips the
+`SPRING_INIT` line.
 
-Run with Vault live:
-
-| Run | AOT | `db.password` | `AuditService` bean | `VaultProperties` bean |
-|---|---|---|---|---|
-| `optional-disabled` | yes | loaded | **0** | **0** |
-| `runtime-import` + `SPRING_CONFIG_IMPORT=vault://` | yes | loaded | **0** | 1 |
-| `runtime-import`, import not supplied | yes | **not loaded (silent)** | 0 | 1 |
-| `runtime-import` + import, no AOT (baseline) | no | loaded | 1 | 1 |
-| `runtime-import-flags` + import | yes | loaded | 1 | 1 |
-| `runtime-import` + import, Vault down | yes | startup fails (fail-fast) | — | — |
-
-## Findings
-
-1. **`processAot` does contact Vault.** AOT boots the app far enough to load config data, so the
-   `vault://` import runs at build time.
-   - With `fail-fast: true` the build fails when Vault is unreachable.
-   - With the default `fail-fast: false` the build **succeeds** and only logs a `WARN`. That's
-     arguably worse: whether the build could reach Vault decides which beans the AOT output keeps
-     (see finding 4).
-
-2. **`--spring.config.import=` on `processAot` does NOT work** when the import is declared in
-   `application.yml`. Spring Boot reads each config file's `spring.config.import` from that file
-   only, so a blank import on the command line doesn't cancel it. (It only helps if the import was
-   itself passed on the command line or through an env var.)
-
-3. **Two approaches work at build time:**
-   - **Runtime-only import (recommended).** Leave `spring.config.import` out of the packaged
-     config. Supply it at deploy time with `SPRING_CONFIG_IMPORT=vault://` or
-     `-Dspring.config.import=vault://`. Vault auto-configuration stays enabled during AOT, so its
-     beans (`VaultProperties` etc.) are kept. Nothing changes in the build. See
-     [How the runtime-only import works](#how-the-runtime-only-import-works).
-   - **`optional:vault://` + `--spring.cloud.vault.enabled=false` on `processAot`.** The build
-     works, and secrets still load at runtime because config-data loading isn't frozen by AOT. But
-     AOT **removes `VaultAutoConfiguration` and the `VaultProperties` bean** for good. Any code that
-     injects `VaultProperties` or relies on that auto-config will break under AOT. Using
-     `enabled=false` without `optional:` fails the build with
-     `Config data location 'vault://' does not exist`.
-
-4. **The real "frozen state" risk is `@Conditional` decisions, not secret values.** Secret
-   *values* are resolved at runtime in every working scenario. But `@ConditionalOnProperty`,
-   `@Profile`, etc. are evaluated **once, at build time**. `feature.audit.enabled=true` lives in
-   Vault, so with AOT the `AuditService` bean is missing even though the property reads `true` at
-   runtime. Without AOT the bean exists.
-   Fix: don't let Vault values decide which beans exist. Pass any bean-shaping flags/profiles to
-   `processAot` explicitly (`runtime-import-flags`), the same way `GUIDE.md` handles
-   `--spring.profiles.active`.
-
-5. **A forgotten runtime import fails silently** if the code has defaults (`${db.password:...}`).
-   Avoid defaults for secrets, so startup fails if the deployment forgets `SPRING_CONFIG_IMPORT`.
-
-## How the runtime-only import works
-
-### AOT freezes beans, not configuration
-
-Spring Boot startup has two phases, and AOT only changes the second one:
-
-| Phase | What happens | With AOT (`-Dspring.aot.enabled=true`) |
-|---|---|---|
-| 1. Prepare the environment | Reads `application.yml`, environment variables and `-D` properties, and processes `spring.config.import`. The Vault fetch happens here. | **Still runs at runtime**, unchanged |
-| 2. Refresh the context | Scans for beans, evaluates `@Conditional`/`@Profile`, registers bean definitions | **Replaced** by code generated at build time |
-
-Vault config loading happens in phase 1, so AOT never freezes it. The secret is fetched each time
-the app starts, whether it was built with AOT or not. That's why `db.password` loaded in every
-scenario that built. AOT only fixes phase 2, which decides which beans exist.
-
-### At build time (`processAot`)
-
-With no import in `application.yml`:
-
-- Phase 1 runs, but nothing asks for `vault://`, so **no network call is made**. It builds even
-  with Vault unreachable.
-- Phase 2 runs, and Spring Cloud Vault is on the classpath with `spring.cloud.vault.enabled` at its
-  default of `true`. Vault's auto-configuration passes its conditions, so AOT **keeps** those beans
-  (`VaultProperties` and the rest of `VaultAutoConfiguration`).
-- AOT only *registers* bean definitions; it doesn't create the beans. So no token or connection is
-  needed to keep them.
-
-The generated jars confirm this. The `runtime-import` jar contains
-`VaultAutoConfiguration__BeanDefinitions` and `VaultProperties__BeanDefinitions`. The
-`optional-disabled` jar has neither, because Vault was turned off during AOT. To check:
-
-```sh
-unzip -l build/libs/vault-aot-poc-0.0.1-<scenario>.jar | grep -i 'vault.*__BeanDefinitions'
-```
-
-### At runtime
-
-```sh
-SPRING_CONFIG_IMPORT=vault:// java -Dspring.aot.enabled=true -jar app.jar
-```
-
-- Spring treats the `SPRING_CONFIG_IMPORT` environment variable the same as
-  `spring.config.import`. Environment variables, `-D` properties and command-line args are checked
-  for imports just like `application.yml`.
-- Spring Cloud Vault's loader reads the `spring.cloud.vault.*` client settings from the packaged
-  `application.yml` (uri, auth, kv path). It fetches `secret/vault-aot-poc` and adds those values as
-  a property source.
-- The pre-built context then starts and gets its values from that environment.
-
-PoC output for that run:
-
-```
-AOT mode active        : true
-db.password (Vault)    : s3cr3t-from-vault
-VaultTemplate beans    : 1
-VaultProperties beans  : 1
-```
-
-### Why this works and the `--spring.config.import=` fix doesn't
-
-They look similar, but they're opposites:
-
-- **Pasted fix:** the import stays in `application.yml`, and a blank `--spring.config.import=` is
-  passed during the build. A config file's import is read from that file only, so the blank value
-  can't override it.
-- **This approach:** the import exists only in the runtime environment. During the build there is
-  nothing to override because no import was ever declared.
-
-### In practice
-
-- **Packaged `application.yml`:** keep only the Vault client settings (`uri`, `authentication`,
-  `kv.*`, `fail-fast: true`). They aren't secret and are safe to build in.
-- **Deployment:** set `SPRING_CONFIG_IMPORT=vault://` wherever runtime environment variables are
-  defined. With the `hcvault-ecs` profile, that's probably the ECS task definition.
-- **Local dev:** export the same variable, or add it to your IDE run configuration.
-
-### Caveats
-
-- **A forgotten import fails silently** if code has defaults like `${db.password:...}`. The PoC
-  showed `<NOT LOADED>` with no error. Don't give secrets defaults, so startup fails instead.
-- **Vault outages:** with `fail-fast: true`, the app won't start if Vault is down (the last PoC
-  run). That's normally what you want.
-- **Bean-deciding properties still can't come from Vault.** This approach only solves secret
-  loading. A Vault value that decides whether a bean exists is still decided at build time
-  (finding 4), so pass those flags or profiles to `processAot` explicitly.
-- **Don't move the import into a profile-specific file** that is also passed to `processAot`. See
-  [Watch out with profiles](#watch-out-with-profiles).
-
-## Watch out with profiles
-
-If the import lives in a profile-specific file (e.g. `application-hcvault.yml`) **and** that
-profile is passed to `processAot` (as `GUIDE.md` recommends for bean coverage), the build connects
-to Vault again (this follows from finding 1; I did not test it separately). Either keep the import
-out of packaged config (runtime-only import above), or make it `optional:` and pass
-`--spring.cloud.vault.enabled=false` alongside the profiles, knowing the bean trade-off in
-finding 3.
-
-## Recommended setup
-
-```yaml
-# application.yml (packaged) — client settings only, no import
-spring:
-  cloud:
-    vault:
-      uri: ${VAULT_ADDR}
-      fail-fast: true
-      authentication: TOKEN   # or KUBERNETES / AWS_IAM / APPROLE …
-      kv: { enabled: true, backend: secret, default-context: my-app }
-```
-
-```groovy
-tasks.named('processAot') {
-    // profiles/flags that decide which beans exist — never sourced from Vault
-    args('--spring.profiles.active=dev,hcvault,hcvault-ecs,ecs')
-}
-```
-
-```sh
-SPRING_CONFIG_IMPORT=vault:// java -Dspring.aot.enabled=true -jar app.jar
-```
-
-Not covered: GraalVM native image (not installed here). The config-data behavior should be the
-same, but native builds also need reachability hints for whatever auth method you use.
+Use `grep -E 'STARTUP_TIMING|SPRING_INIT'` on any app log, or
+`kubectl logs deploy/<app> -c app | grep -E 'STARTUP_TIMING|SPRING_INIT'` in a cluster.

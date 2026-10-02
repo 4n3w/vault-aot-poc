@@ -1,0 +1,49 @@
+# Latency proxy in front of Vault: vault-latency.vault.svc:8200 -> vault.vault.svc:8200.
+# k3d.sh adds the latency toxic (VAULT_LATENCY_MS) once the pod is up.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: toxiproxy
+  namespace: vault
+data:
+  toxiproxy.json: |
+    [{"name": "vault", "listen": "0.0.0.0:8200", "upstream": "vault.vault.svc:8200", "enabled": true}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toxiproxy
+  namespace: vault
+  labels: { app: toxiproxy }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: toxiproxy } }
+  template:
+    metadata:
+      labels: { app: toxiproxy }
+    spec:
+      containers:
+        - name: toxiproxy
+          image: ghcr.io/shopify/toxiproxy:2.12.0
+          args: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+          ports:
+            - { name: vault, containerPort: 8200 }
+            - { name: api, containerPort: 8474 }
+          readinessProbe:
+            httpGet: { path: /version, port: api }
+            periodSeconds: 1
+          volumeMounts:
+            - { name: config, mountPath: /config }
+      volumes:
+        - name: config
+          configMap: { name: toxiproxy }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-latency
+  namespace: vault
+spec:
+  selector: { app: toxiproxy }
+  ports:
+    - { name: vault, port: 8200, targetPort: vault }

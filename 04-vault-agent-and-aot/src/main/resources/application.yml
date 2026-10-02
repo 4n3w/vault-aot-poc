@@ -1,0 +1,23 @@
+# Vault Agent + AOT: Spring Cloud Vault talks to the local agent (sidecar), which logs in and
+# adds its own token to every request (use_auto_auth_token = force).
+spring:
+  application:
+    name: startup-vault-agent
+  # No spring.config.import here. It is supplied at runtime (SPRING_CONFIG_IMPORT=vault://) so
+  # processAot never contacts Vault - see 01-aot-breakage.
+  cloud:
+    vault:
+      uri: ${VAULT_AGENT_ADDR:http://127.0.0.1:8200}
+      fail-fast: true
+      authentication: NONE      # the agent authenticates
+      kv:
+        enabled: true
+        backend: secret
+        application-name: vault-startup-demo
+        default-context: ""     # don't also read secret/application
+        profiles: ""            # don't read secret/vault-startup-demo/<profile>
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true

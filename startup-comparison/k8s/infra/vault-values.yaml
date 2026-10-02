@@ -1,0 +1,9 @@
+# hashicorp/vault chart, k3d only: in-memory dev server + the Agent Injector.
+server:
+  dev:
+    enabled: true
+    devRootToken: root
+injector:
+  enabled: true
+ui:
+  enabled: false

@@ -1,0 +1,61 @@
+# Vault Agent + AOT: the injector adds a Vault Agent sidecar that logs in and proxies requests,
+# adding its own token. The app talks to it on localhost with authentication: NONE.
+# The injector has no native-sidecar option, so the app container waits for the agent's listener
+# (logged as AGENT_WAIT) before starting the JVM.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault-agent
+  labels: { app: vault-agent }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: vault-agent } }
+  template:
+    metadata:
+      labels: { app: vault-agent }
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: vault-startup-demo
+        vault.hashicorp.com/service: http://vault-latency.vault.svc:8200
+        vault.hashicorp.com/agent-cache-enable: "true"
+        vault.hashicorp.com/agent-cache-use-auto-auth-token: "force"
+
+    spec:
+      serviceAccountName: vault-startup-demo
+      containers:
+        - name: app
+          image: vault-startup-vault-agent:local
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-c"]
+          args:
+            - |
+              t0=$(date +%s%3N)
+              until (exec 3<>/dev/tcp/127.0.0.1/8200) 2>/dev/null; do sleep 0.05; done
+              echo "AGENT_WAIT ms=$(( $(date +%s%3N) - t0 ))"
+              exec java -jar /app/app.jar
+          env:
+            - { name: JAVA_TOOL_OPTIONS, value: -Dspring.aot.enabled=true }
+            - { name: SPRING_CONFIG_IMPORT, value: "vault://" }
+            - { name: VAULT_AGENT_ADDR, value: "http://127.0.0.1:8200" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          # Same CPU/memory for every app: CPU limits dominate JVM startup time.
+          resources:
+            requests: { cpu: "1", memory: 768Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          # Readiness only (1 s period) so pod-level timings aren't padded by a startup probe.
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 1
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-agent
+spec:
+  selector: { app: vault-agent }
+  ports:
+    - { name: http, port: 80, targetPort: http }

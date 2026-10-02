@@ -1,0 +1,3 @@
+resources:
+  - vso.yaml
+  - deployment.yaml

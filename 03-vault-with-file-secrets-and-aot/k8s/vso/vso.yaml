@@ -1,0 +1,28 @@
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: vault-startup-demo
+spec:
+  method: kubernetes
+  mount: kubernetes
+  kubernetes:
+    role: vault-startup-demo
+    serviceAccount: vault-startup-demo
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultStaticSecret
+metadata:
+  name: vault-startup-demo
+spec:
+  vaultAuthRef: vault-startup-demo
+  type: kv-v2
+  mount: secret
+  path: vault-startup-demo
+  refreshAfter: 60s
+  destination:
+    name: vault-startup-demo-secrets
+    create: true
+    transformation:
+      excludeRaw: true # otherwise a _raw key (and file) holding the whole secret is added
+  rolloutRestartTargets:
+    - { kind: Deployment, name: file-secrets }

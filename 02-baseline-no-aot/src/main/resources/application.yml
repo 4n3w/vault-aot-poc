@@ -1,0 +1,27 @@
+# Baseline: the usual setup. Spring Cloud Vault logs in and reads Vault itself on every start.
+# Runs without AOT by default; the jar is AOT-processed too, so it can be compared with AOT on.
+spring:
+  application:
+    name: startup-baseline
+  # No spring.config.import here. It is supplied at runtime (SPRING_CONFIG_IMPORT=vault://) so
+  # processAot never contacts Vault - see 01-aot-breakage. The Vault fetch itself is unchanged.
+  cloud:
+    vault:
+      uri: ${VAULT_ADDR:http://127.0.0.1:8200}
+      fail-fast: true
+      authentication: ${VAULT_AUTH:KUBERNETES}
+      kubernetes:
+        role: vault-startup-demo
+      app-role:                 # local runs only (VAULT_AUTH=APPROLE); k8s uses the service account
+        role-id: ${VAULT_ROLE_ID:}
+        secret-id: ${VAULT_SECRET_ID:}
+      kv:
+        enabled: true
+        backend: secret
+        application-name: vault-startup-demo
+        # default-context / profiles left at Spring's defaults: also reads secret/application
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
