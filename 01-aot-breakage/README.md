@@ -121,6 +121,18 @@ Run with Vault live:
      `enabled=false` without `optional:` fails the build with
      `Config data location 'vault://' does not exist`.
 
+     **Why both halves are needed.** `optional:` only means "skip this location if it doesn't
+     exist". It doesn't stop Spring Cloud Vault from calling Vault, and a failed connection isn't a
+     missing location. So `optional:vault://` alone still contacts Vault:
+     - with `fail-fast: true`, startup (and so `processAot`) fails with `Connection refused`;
+     - with `fail-fast: false`, it logs the error and carries on without the secrets.
+
+     `enabled=false` is what stops the call. But with Vault disabled, nothing can resolve
+     `vault://`, so the location counts as missing, and only `optional:` makes that acceptable.
+     The `optional:`-only cases were checked by starting the `runtime-import` jar with
+     `SPRING_CONFIG_IMPORT=optional:vault://` and Vault unreachable. That runs the same
+     config-data step as `processAot` (see finding 1).
+
 4. **The real "frozen state" risk is `@Conditional` decisions, not secret values.** Secret
    *values* are resolved at runtime in every working scenario. But `@ConditionalOnProperty`,
    `@Profile`, etc. are evaluated **once, at build time**. `feature.audit.enabled=true` lives in

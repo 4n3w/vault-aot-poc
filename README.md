@@ -13,6 +13,8 @@ question:
 | [`06-mongo-optimized`](06-mongo-optimized/README.md) | 05 with AOT + deferred Mongo init, through each of 03's and 04's delivery options |
 | [`startup-comparison`](startup-comparison/README.md) | Runs 02–06 side by side (02–04 locally or on a k3d cluster, 05–06 on k3d) and has the results |
 
+**Short version:** [`SUMMARY.md`](SUMMARY.md) has the fastest setups, their numbers, and why each one wins.
+
 02–06 build on 01. Their AOT builds use the approach 01 recommends: no `vault://` import in the
 packaged config.
 
